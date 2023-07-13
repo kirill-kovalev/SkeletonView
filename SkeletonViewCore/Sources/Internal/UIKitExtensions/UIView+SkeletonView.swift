@@ -15,7 +15,7 @@ import UIKit
 
 extension UIView {
     
-    func showSkeleton(
+    public func showSkeleton(
         skeletonConfig config: SkeletonConfig,
         notifyDelegate: Bool = true
     ) {
@@ -29,7 +29,7 @@ extension UIView {
         recursiveShowSkeleton(skeletonConfig: config, root: self)
     }
 
-    func updateSkeleton(
+    public func updateSkeleton(
         skeletonConfig config: SkeletonConfig,
         notifyDelegate: Bool = true
     ) {
@@ -43,15 +43,17 @@ extension UIView {
     }
 
     func recursiveLayoutSkeletonIfNeeded(root: UIView? = nil) {
-        subviewsSkeletonables.recursiveSearch(leafBlock: {
-            guard isSkeletonable, sk.isSkeletonActive else { return }
+
+        if isSkeletonable, sk.isSkeletonActive {
             layoutSkeletonLayerIfNeeded()
             if let config = _currentSkeletonConfig, config.animated, !_isSkeletonAnimated {
                 startSkeletonAnimation(config.animation)
             }
-        }) { subview in
-            subview.recursiveLayoutSkeletonIfNeeded()
         }
+        
+        subviews.forEach({ subview in
+            subview.recursiveLayoutSkeletonIfNeeded()
+        })
 
         if let root = root {
             _flowDelegate?.didLayoutSkeletonsIfNeeded(rootView: root)
@@ -59,23 +61,31 @@ extension UIView {
     }
 
     func recursiveHideSkeleton(reloadDataAfter reload: Bool, transition: SkeletonTransitionStyle, root: UIView? = nil) {
-        guard sk.isSkeletonActive else { return }
-        if isHiddenWhenSkeletonIsActive {
-            isHidden = false
+        if sk.isSkeletonActive {
+            if isHiddenWhenSkeletonIsActive {
+                isHidden = false
+            }
+            _currentSkeletonConfig?.transition = transition
+            unSwizzleLayoutSubviews()
+            unSwizzleTraitCollectionDidChange()
         }
-        _currentSkeletonConfig?.transition = transition
-        unSwizzleLayoutSubviews()
-        unSwizzleTraitCollectionDidChange()
-        removeDummyDataSourceIfNeeded(reloadAfter: reload)
-        subviewsSkeletonables.recursiveSearch(leafBlock: {
+
+        if _skeletonLayer != nil {
             recoverViewState(forced: false)
             removeSkeletonLayer()
-        }) { subview in
-            subview.recursiveHideSkeleton(reloadDataAfter: reload, transition: transition)
         }
         
-        if let root = root {
-            _flowDelegate?.didHideSkeletons(rootView: root)
+        subviews.forEach({
+            $0.recursiveHideSkeleton(reloadDataAfter: reload, transition: transition)
+        })
+        
+        if sk.isSkeletonActive {
+            removeDummyDataSourceIfNeeded(reloadAfter: reload)
+            
+            
+            if let root = root {
+                _flowDelegate?.didHideSkeletons(rootView: root)
+            }
         }
     }
     
@@ -92,24 +102,30 @@ private extension UIView {
     }
     
     func recursiveShowSkeleton(skeletonConfig config: SkeletonConfig, root: UIView? = nil) {
-        if isHiddenWhenSkeletonIsActive {
-            isHidden = true
-        }
-        guard isSkeletonable && !sk.isSkeletonActive else { return }
-        _currentSkeletonConfig = config
-        swizzleLayoutSubviews()
-        swizzleTraitCollectionDidChange()
-        addDummyDataSourceIfNeeded()
-        subviewsSkeletonables.recursiveSearch(leafBlock: {
-            showSkeletonIfNotActive(skeletonConfig: config)
-        }) { subview in
-            subview.recursiveShowSkeleton(skeletonConfig: config)
-        }
+            if isHiddenWhenSkeletonIsActive {
+                isHidden = true
+            }
+            guard !sk.isSkeletonActive else { return }
+            _currentSkeletonConfig = config
+            swizzleLayoutSubviews()
+            swizzleTraitCollectionDidChange()
+            addDummyDataSourceIfNeeded()
+            
 
-        if let root = root {
-            _flowDelegate?.didShowSkeletons(rootView: root)
+            if self.isSkeletonable, !(self is CollectionSkeleton) {
+                showSkeletonIfNotActive(skeletonConfig: config)
+            }
+            
+            if !self.isSkeletonable || self is CollectionSkeleton {
+                subviews.forEach({
+                    $0.recursiveShowSkeleton(skeletonConfig: config)
+                })
+            }
+
+            if let root = root {
+                _flowDelegate?.didShowSkeletons(rootView: root)
+            }
         }
-    }
     
     func recursiveUpdateSkeleton(skeletonConfig config: SkeletonConfig, root: UIView? = nil) {
         guard sk.isSkeletonActive else { return }
